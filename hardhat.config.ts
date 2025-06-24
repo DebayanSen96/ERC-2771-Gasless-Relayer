@@ -37,6 +37,8 @@ const config: HardhatUserConfig = {
       url: BASE_SEPOLIA_RPC_URL,
       chainId: 84532,
       accounts: [PRIVATE_KEY_FUNDED, PRIVATE_KEY_UNFUNDED],
+      gasPrice: 1000000000, // 1 gwei
+      gasMultiplier: 1.5,
     },
   },
   paths: {

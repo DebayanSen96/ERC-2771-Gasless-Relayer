@@ -7,16 +7,22 @@ import axios from 'axios';
 dotenv.config();
 
 // Configuration
-const RPC_URL = process.env.RPC_URL || 'http://127.0.0.1:8545';
-const USER_PRIVATE_KEY = process.env.USER_PRIVATE_KEY;
+const RPC_URL = process.env.RPC_URL || 'https://sepolia.base.org';
+const USER_PRIVATE_KEY = process.env.PRIVATE_KEY_UNFUNDED; // Using unfunded wallet for testing
 const FORWARDER_ADDRESS = process.env.FORWARDER_ADDRESS;
+const TOKEN_ADDRESS = process.env.TOKEN_ADDRESS;
 const RELAYER_URL = process.env.RELAYER_URL || 'http://localhost:3000/relay';
 
 if (!USER_PRIVATE_KEY) throw new Error('USER_PRIVATE_KEY is required in .env');
 if (!FORWARDER_ADDRESS) throw new Error('FORWARDER_ADDRESS is required in .env');
 
-// Initialize client
-const account = privateKeyToAccount(USER_PRIVATE_KEY as `0x${string}`);
+// Ensure the private key is properly formatted with 0x prefix
+const formattedPrivateKey = USER_PRIVATE_KEY.startsWith('0x') 
+  ? USER_PRIVATE_KEY 
+  : `0x${USER_PRIVATE_KEY}`;
+
+// Initialize client with properly formatted private key
+const account = privateKeyToAccount(formattedPrivateKey as `0x${string}`);
 
 const walletClient = createWalletClient({
   account,
@@ -40,30 +46,49 @@ type RelayRequest = {
 };
 
 // Get nonce from the forwarder
-async function getNonce(forwarderAddress: `0x${string}`, from: `0x${string}`) {
-  const data = {
-    jsonrpc: '2.0',
-    id: 1,
-    method: 'eth_call',
-    params: [
-      {
-        to: forwarderAddress,
-        data: `0x2f54bf6e${from.slice(2).padStart(64, '0')}`,
+async function getNonce(forwarderAddress: `0x${string}`, from: `0x${string}`): Promise<bigint> {
+  try {
+    const data = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'eth_call',
+      params: [
+        {
+          to: forwarderAddress,
+          data: `0x2f54bf6e${from.slice(2).padStart(64, '0')}`,
+        },
+        'latest',
+      ],
+    };
+
+    console.log('Fetching nonce from forwarder...');
+    const response = await fetch(RPC_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
-      'latest',
-    ],
-  };
+      body: JSON.stringify(data),
+    });
 
-  const response = await fetch(RPC_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(data),
-  });
+    if (!response.ok) {
+      throw new Error(`RPC call failed with status ${response.status}`);
+    }
 
-  const result = await response.json();
-  return BigInt(result.result);
+    const result = await response.json();
+    
+    if (!result.result) {
+      console.error('RPC response error:', result);
+      throw new Error('Invalid RPC response format');
+    }
+
+    // Parse the hex string to a bigint
+    const nonce = BigInt(result.result);
+    console.log('Got nonce:', nonce.toString());
+    return nonce;
+  } catch (error) {
+    console.error('Error in getNonce:', error);
+    throw new Error(`Failed to get nonce: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 // Sign and send meta-transaction
@@ -92,7 +117,7 @@ export async function sendMetaTransaction(
       name: 'MinimalForwarder',
       version: '0.0.1',
       chainId: hardhat.id,
-      verifyingContract: FORWARDER_ADDRESS,
+      verifyingContract: FORWARDER_ADDRESS as `0x${string}`,
     };
 
     // The types for the EIP-712 message
@@ -136,15 +161,32 @@ export async function sendMetaTransaction(
 
 // Example usage
 async function exampleUsage() {
-  // Replace with your TestToken address
-  const tokenAddress = '0x...';
+  if (!TOKEN_ADDRESS) {
+    throw new Error('TOKEN_ADDRESS is not set in .env');
+  }
   
-  // Encode the mintToSender function call
-  const data = '0x1249c58b';
+  console.log('Sending meta-transaction to mint tokens...');
+  console.log(`From: ${account.address}`);
+  console.log(`To: ${TOKEN_ADDRESS}`);
+  console.log(`Using relayer: ${RELAYER_URL}`);
+  
+  // Encode the mintToSender function call (function selector for mintToSender(uint256))
+  // We'll mint 1000 tokens (with 18 decimals)
+  const amount = BigInt(1000 * 10**18);
+  const data = '0x1249c58b' + amount.toString(16).padStart(64, '0');
+  
+  console.log('Sending meta-transaction with data:', data);
   
   // Send the meta-transaction
-  const result = await sendMetaTransaction(tokenAddress, data as `0x${string}`);
+  const result = await sendMetaTransaction(
+    TOKEN_ADDRESS as `0x${string}`, 
+    data as `0x${string}`,
+    0n, // value
+    200000n // gas
+  );
+  
   console.log('Meta-transaction result:', result);
+  return result;
 }
 
 // Run the example if this file is executed directly
