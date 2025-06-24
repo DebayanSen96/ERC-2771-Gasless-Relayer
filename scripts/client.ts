@@ -48,6 +48,13 @@ type RelayRequest = {
 // Get nonce from the forwarder
 async function getNonce(forwarderAddress: `0x${string}`, from: `0x${string}`): Promise<bigint> {
   try {
+    // Function selector for getNonce(address)
+    // keccak256("getNonce(address)") = 0x2d0335ab
+    // Then pad the address to 32 bytes
+    const functionSelector = '0x2d0335ab';
+    const paddedAddress = from.slice(2).padStart(64, '0');
+    const callData = `${functionSelector}${paddedAddress}`;
+    
     const data = {
       jsonrpc: '2.0',
       id: 1,
@@ -55,7 +62,7 @@ async function getNonce(forwarderAddress: `0x${string}`, from: `0x${string}`): P
       params: [
         {
           to: forwarderAddress,
-          data: `0x2f54bf6e${from.slice(2).padStart(64, '0')}`,
+          data: callData,
         },
         'latest',
       ],
@@ -97,7 +104,7 @@ export async function sendMetaTransaction(
   data: `0x${string}`,
   value: bigint = 0n,
   gas: bigint = 200000n
-): Promise<{ success: boolean; txHash?: string; error?: string }> {
+): Promise<{ success: boolean; txHash?: string; receipt?: any; error?: string }> {
   try {
     const from = account.address;
     const nonce = await getNonce(FORWARDER_ADDRESS as `0x${string}`, from);
@@ -113,10 +120,11 @@ export async function sendMetaTransaction(
     };
 
     // Get the EIP-712 domain separator
+    // Using Base Sepolia chain ID (84532)
     const domain = {
       name: 'MinimalForwarder',
       version: '0.0.1',
-      chainId: hardhat.id,
+      chainId: 84532, // Base Sepolia chain ID
       verifyingContract: FORWARDER_ADDRESS as `0x${string}`,
     };
 
@@ -140,16 +148,37 @@ export async function sendMetaTransaction(
       message: request,
     });
 
-    // Create the relay request
-    const relayRequest: RelayRequest = {
-      request,
+    // Create the relay request with BigInt values converted to strings for JSON serialization
+    const relayRequest = {
+      request: {
+        ...request,
+        value: request.value.toString(),
+        gas: request.gas.toString(),
+        nonce: request.nonce.toString(),
+      },
       signature,
     };
 
-    // Send to relayer
-    const response = await axios.post(RELAYER_URL, relayRequest);
+    console.log('Sending relay request:', JSON.stringify(relayRequest, null, 2));
     
-    return { success: true, txHash: response.data.transactionHash };
+    // Send to relayer
+    const response = await axios.post(RELAYER_URL, relayRequest, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    console.log('Relayer response:', response.data);
+    
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Unknown error from relayer');
+    }
+    
+    return { 
+      success: true, 
+      txHash: response.data.transactionHash,
+      receipt: response.data.receipt 
+    };
   } catch (error) {
     console.error('Error sending meta-transaction:', error);
     return { 

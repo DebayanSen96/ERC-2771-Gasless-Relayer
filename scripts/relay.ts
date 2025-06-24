@@ -37,8 +37,28 @@ if (!FORWARDER_ADDRESS) throw new Error('FORWARDER_ADDRESS is required in .env')
 const provider = new ethers.JsonRpcProvider(RPC_URL);
 const wallet = new ethers.Wallet(SPONSOR_PRIVATE_KEY, provider);
 
+// EIP-712 types for the MinimalForwarder
+const EIP712_DOMAIN = {
+  name: 'MinimalForwarder',
+  version: '0.0.1',
+  chainId: 84532, // Base Sepolia chain ID
+  verifyingContract: process.env.FORWARDER_ADDRESS as `0x${string}`,
+};
+
+const FORWARD_REQUEST_TYPE = {
+  ForwardRequest: [
+    { name: 'from', type: 'address' },
+    { name: 'to', type: 'address' },
+    { name: 'value', type: 'uint256' },
+    { name: 'gas', type: 'uint256' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'data', type: 'bytes' },
+  ],
+};
+
 // ABI for MinimalForwarder
 const MINIMAL_FORWARDER_ABI = [
+  'function getNonce(address from) view returns (uint256)',
   'function verify((address from, address to, uint256 value, uint256 gas, uint256 nonce, bytes data), bytes signature) view returns (bool)',
   'function execute((address from, address to, uint256 value, uint256 gas, uint256 nonce, bytes data), bytes signature) payable returns (bool, bytes)'
 ];
@@ -55,35 +75,58 @@ export async function relayMetaTransaction(
       wallet
     );
 
-    // Verify the signature
-    const isValid = await forwarder.verify(
-      {
-        from: relayRequest.request.from,
-        to: relayRequest.request.to,
-        value: relayRequest.request.value,
-        gas: relayRequest.request.gas,
-        nonce: relayRequest.request.nonce,
-        data: relayRequest.request.data
-      },
-      relayRequest.signature
-    );
+    // Get current nonce from the forwarder
+    const currentNonce = await forwarder.getNonce(relayRequest.request.from);
     
-    if (!isValid) {
-      return { success: false, error: 'Invalid signature' };
+    // Verify the nonce
+    if (BigInt(relayRequest.request.nonce) !== currentNonce) {
+      return { 
+        success: false, 
+        error: `Invalid nonce. Expected: ${currentNonce}, got: ${relayRequest.request.nonce}` 
+      };
+    }
+    
+    // Reconstruct the original request with BigInt values
+    const request = {
+      from: relayRequest.request.from,
+      to: relayRequest.request.to,
+      value: BigInt(relayRequest.request.value),
+      gas: BigInt(relayRequest.request.gas),
+      nonce: BigInt(relayRequest.request.nonce),
+      data: relayRequest.request.data as `0x${string}`
+    };
+    
+    // Verify the signature using EIP-712
+    try {
+      const recovered = await ethers.verifyTypedData(
+        EIP712_DOMAIN,
+        FORWARD_REQUEST_TYPE,
+        request,
+        relayRequest.signature
+      );
+      
+      if (recovered.toLowerCase() !== request.from.toLowerCase()) {
+        return { success: false, error: 'Invalid signature: recovered address does not match from address' };
+      }
+    } catch (error) {
+      console.error('Signature verification failed:', error);
+      return { success: false, error: 'Signature verification failed' };
     }
 
     // Execute the meta-transaction
+    console.log('Executing meta-transaction:', {
+      from: request.from,
+      to: request.to,
+      value: request.value.toString(),
+      gas: request.gas.toString(),
+      nonce: request.nonce.toString(),
+      data: request.data
+    });
+    
     const tx = await forwarder.execute(
-      {
-        from: relayRequest.request.from,
-        to: relayRequest.request.to,
-        value: relayRequest.request.value,
-        gas: relayRequest.request.gas,
-        nonce: relayRequest.request.nonce,
-        data: relayRequest.request.data
-      },
+      request,
       relayRequest.signature,
-      { value: relayRequest.request.value }
+      { value: request.value }
     );
     
     // Wait for the transaction to be mined
