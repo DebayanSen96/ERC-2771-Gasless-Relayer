@@ -1,0 +1,68 @@
+✅ Goal
+Allow a wallet with 0 ETH to call mint() on a custom ERC20 token, using a relayer backend that pays gas.
+
+🔧 Requirements & Components
+1. Smart Contracts
+✅ TestToken.sol: ERC20 token with a mintToSender(uint) function.
+
+✅ MinimalForwarder.sol: From OpenZeppelin (handles meta-tx forwarding + signature verification).
+
+✅ ERC2771Context: Used by TestToken to read _msgSender() properly from forwarded txs.
+
+2. Wallets
+🔹 Sponsor Wallet
+
+An EOA with ETH (used by your backend to pay gas).
+
+🔹 No Balance Wallet
+
+A random EOA with 0 ETH (used to sign off-chain txs).
+
+3. Backend Server (Relayer)
+Runs Node.js (or script) with:
+
+Reads and verifies the signed meta-tx (EIP-712)
+
+Sends an execute(request, signature) tx to the MinimalForwarder on-chain
+
+Uses the sponsor wallet to sign and broadcast
+
+4. Frontend or CLI Signer
+Uses viem or ethers to:
+
+Build and sign the meta-transaction payload (EIP-712 typed data)
+
+Sends it to the backend
+
+5. Hardhat Project Setup
+bash
+Copy
+Edit
+npx hardhat init
+npm install @openzeppelin/contracts viem ethers dotenv
+6. Deploy Script
+Deploy in this order:
+
+MinimalForwarder
+
+TestToken(forwarder address)
+
+📦 Meta-Transaction Flow Summary
+🧑‍💻 User signs an off-chain EIP-712 message (meta-tx request).
+
+📮 Client sends { request, signature } to your backend.
+
+🔁 Backend verifies signature (optional but recommended).
+
+🚀 Backend sends forwarder.execute(request, signature) using the sponsor wallet.
+
+📈 Token gets minted to the original signer address.
+
+🟢 No ETH required by the user.
+
+Optional Extras
+🔐 Add nonces to prevent replay
+
+💬 Log events for debugging and tracking usage
+
+🔁 Deploy to Sepolia or Base Sepolia for live testing
