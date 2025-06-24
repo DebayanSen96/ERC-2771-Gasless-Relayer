@@ -199,10 +199,9 @@ async function exampleUsage() {
   console.log(`To: ${TOKEN_ADDRESS}`);
   console.log(`Using relayer: ${RELAYER_URL}`);
   
-  // Encode the mintToSender function call (function selector for mintToSender(uint256))
-  // We'll mint 1000 tokens (with 18 decimals)
-  const amount = BigInt(1000 * 10**18);
-  const data = '0x1249c58b' + amount.toString(16).padStart(64, '0');
+  // Encode the mintToSender() function call (no parameters)
+  // Function selector for mintToSender() is 0xe48e6227
+  const data: `0x${string}` = '0xe48e6227';
   
   console.log('Sending meta-transaction with data:', data);
   
