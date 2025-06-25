@@ -50,30 +50,36 @@ contract TokenProxy is ERC2771Context {
     function mintToken(address token, uint256 amount) external {
         address sender = _msgSender();
 
-        // Try mint(address,uint256) first (OpenZeppelin style)
-        (bool success, ) = token.call(
-            abi.encodeWithSignature("mint(address,uint256)", sender, amount)
-        );
+        bool success;
+        bool needTransfer = false;
 
-        if (!success) {
-            // Fallback: try mint(uint256) or publicMint(uint256)
+        // 1) Try publicMint(uint256) – common pattern for open mint tokens like DSNToken
+        (success, ) = token.call(
+            abi.encodeWithSignature("publicMint(uint256)", amount)
+        );
+        if (success) {
+            needTransfer = true; // tokens minted to proxy itself
+        } else {
+            // 2) Try mint(uint256)
             (success, ) = token.call(
                 abi.encodeWithSignature("mint(uint256)", amount)
             );
-            if (!success) {
-                (success, ) = token.call(
-                    abi.encodeWithSignature("publicMint(uint256)", amount)
-                );
-            }
-            // If mint(uint256) or publicMint(uint256) succeeded, tokens were minted to the proxy itself.
             if (success) {
-                // Transfer the freshly minted tokens to the original sender
-                bool xfer = IERC20(token).transfer(sender, amount);
-                require(xfer, "TokenProxy: transfer after mint failed");
+                needTransfer = true; // tokens minted to proxy itself
+            } else {
+                // 3) Fallback: mint(address,uint256) (OpenZeppelin style – mints directly to recipient)
+                (success, ) = token.call(
+                    abi.encodeWithSignature("mint(address,uint256)", sender, amount)
+                );
             }
         }
 
         require(success, "TokenProxy: mint failed");
+
+        if (needTransfer) {
+            bool xfer = IERC20(token).transfer(sender, amount);
+            require(xfer, "TokenProxy: transfer after mint failed");
+        }
         emit TokenMinted(token, sender, amount);
     }
     
