@@ -20,7 +20,7 @@ const FORWARDER_ADDRESS = '0x9a42dc931963A42750B344a56fAd5e3B7A276595';
 // This is the unfunded wallet's private key - NEVER expose this in production!
 // For a real app, you would use a wallet connection like MetaMask
 // Using the same private key as in the client.ts script
-const UNFUNDED_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+const UNFUNDED_PRIVATE_KEY = '0x8166f546bab6da521a8369cab06c5d2b9e46670292d85c875ee9ec20e84ffb61';
 
 // The actual unfunded wallet address we want to display and check balance for
 // This is different from the account.address that will be derived from the private key
