@@ -6,6 +6,9 @@ const senderAddressEl = document.getElementById('sender-address');
 const senderBalanceEl = document.getElementById('sender-balance');
 const recipientAddressEl = document.getElementById('recipient-address');
 const recipientBalanceEl = document.getElementById('recipient-balance');
+// ETH balance elements
+const senderEthEl = document.getElementById('sender-eth');
+const recipientEthEl = document.getElementById('recipient-eth');
 const amountInput = document.getElementById('amount');
 const transferBtn = document.getElementById('transfer-btn');
 const statusEl = document.getElementById('status');
@@ -119,6 +122,23 @@ async function getNonce(forwarderAddress, from) {
   }
 }
 
+// Fetch native ETH balance
+async function fetchEthBalance(address) {
+  const response = await fetch(RPC_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'eth_getBalance',
+      params: [address, 'latest'],
+    }),
+  });
+  const result = await response.json();
+  if (!result.result) throw new Error('Invalid RPC balance response');
+  return result.result; // hex string wei
+}
+
 // Update balances
 async function updateBalances() {
   try {
@@ -128,6 +148,15 @@ async function updateBalances() {
     const senderBalanceHex = await fetchBalance(senderAddress);
     const senderBalance = formatEther(BigInt(senderBalanceHex));
     senderBalanceEl.textContent = senderBalance;
+
+    // Fetch ETH balances
+    const senderEthHex = await fetchEthBalance(senderAddress);
+    const senderEth = formatEther(BigInt(senderEthHex));
+    senderEthEl.textContent = senderEth;
+
+    const recipientEthHex = await fetchEthBalance(recipientAddress);
+    const recipientEth = formatEther(BigInt(recipientEthHex));
+    recipientEthEl.textContent = recipientEth;
     
     // Fetch recipient balance
     const recipientBalanceHex = await fetchBalance(recipientAddress);
