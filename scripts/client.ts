@@ -5,10 +5,9 @@ import dotenv from 'dotenv';
 import axios from 'axios';
 
 dotenv.config();
-
-// Configuration
+//configurations!!
 const RPC_URL = process.env.RPC_URL || 'https://sepolia.base.org';
-const USER_PRIVATE_KEY = process.env.PRIVATE_KEY_UNFUNDED; // Using unfunded wallet for testing
+const USER_PRIVATE_KEY = process.env.PRIVATE_KEY_UNFUNDED;
 const FORWARDER_ADDRESS = process.env.FORWARDER_ADDRESS;
 const TOKEN_ADDRESS = process.env.TOKEN_ADDRESS;
 const RELAYER_URL = process.env.RELAYER_URL || 'http://localhost:3000/relay';
@@ -16,12 +15,9 @@ const RELAYER_URL = process.env.RELAYER_URL || 'http://localhost:3000/relay';
 if (!USER_PRIVATE_KEY) throw new Error('USER_PRIVATE_KEY is required in .env');
 if (!FORWARDER_ADDRESS) throw new Error('FORWARDER_ADDRESS is required in .env');
 
-// Ensure the private key is properly formatted with 0x prefix
 const formattedPrivateKey = USER_PRIVATE_KEY.startsWith('0x') 
   ? USER_PRIVATE_KEY 
   : `0x${USER_PRIVATE_KEY}`;
-
-// Initialize client with properly formatted private key
 const account = privateKeyToAccount(formattedPrivateKey as `0x${string}`);
 
 const walletClient = createWalletClient({
@@ -45,7 +41,7 @@ type RelayRequest = {
   signature: `0x${string}`;
 };
 
-// Get nonce from the forwarder
+
 async function getNonce(forwarderAddress: `0x${string}`, from: `0x${string}`): Promise<bigint> {
   try {
     // Function selector for getNonce(address)
@@ -199,13 +195,10 @@ async function exampleUsage() {
   console.log(`To: ${TOKEN_ADDRESS}`);
   console.log(`Using relayer: ${RELAYER_URL}`);
   
-  // Encode the mintToSender() function call (no parameters)
-  // Function selector for mintToSender() is 0xe48e6227
   const data: `0x${string}` = '0xe48e6227';
   
   console.log('Sending meta-transaction with data:', data);
   
-  // Send the meta-transaction
   const result = await sendMetaTransaction(
     TOKEN_ADDRESS as `0x${string}`, 
     data as `0x${string}`,
@@ -217,7 +210,6 @@ async function exampleUsage() {
   return result;
 }
 
-// Run the example if this file is executed directly
 if (require.main === module) {
   exampleUsage().catch(console.error);
 }

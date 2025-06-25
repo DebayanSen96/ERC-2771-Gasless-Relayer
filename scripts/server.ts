@@ -5,15 +5,12 @@ import { relayMetaTransaction, RelayRequest } from './relay';
 
 dotenv.config();
 
-// Create Express application
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Health check endpoint
 app.get('/', (_req: Request, res: Response): void => {
   res.json({ 
     status: 'ok', 
@@ -22,12 +19,10 @@ app.get('/', (_req: Request, res: Response): void => {
   });
 });
 
-// Define the route handler separately with proper typing
 const relayHandler = async (req: Request<{}, {}, RelayRequest>, res: Response): Promise<void> => {
   console.log('Received relay request:', JSON.stringify(req.body, null, 2));
   
   try {
-    // Validate request
     if (!req.body || !req.body.request || !req.body.signature) {
       const response = {
         success: false as const,

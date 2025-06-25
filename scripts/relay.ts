@@ -1,7 +1,5 @@
 import dotenv from 'dotenv';
 import { ethers } from 'ethers';
-
-// Types
 export interface ForwardRequest {
   from: `0x${string}`;
   to: `0x${string}`;
@@ -25,7 +23,6 @@ interface RelayResult {
 
 dotenv.config();
 
-// Configuration
 const RPC_URL = process.env.RPC_URL || 'https://sepolia.base.org';
 const SPONSOR_PRIVATE_KEY = process.env.SPONSOR_PRIVATE_KEY;
 const FORWARDER_ADDRESS = process.env.FORWARDER_ADDRESS as `0x${string}`;
@@ -33,15 +30,13 @@ const FORWARDER_ADDRESS = process.env.FORWARDER_ADDRESS as `0x${string}`;
 if (!SPONSOR_PRIVATE_KEY) throw new Error('SPONSOR_PRIVATE_KEY is required in .env');
 if (!FORWARDER_ADDRESS) throw new Error('FORWARDER_ADDRESS is required in .env');
 
-// Initialize provider and signer
 const provider = new ethers.JsonRpcProvider(RPC_URL);
 const wallet = new ethers.Wallet(SPONSOR_PRIVATE_KEY, provider);
 
-// EIP-712 types for the MinimalForwarder
 const EIP712_DOMAIN = {
   name: 'MinimalForwarder',
   version: '0.0.1',
-  chainId: 84532, // Base Sepolia chain ID
+  chainId: 84532, 
   verifyingContract: process.env.FORWARDER_ADDRESS as `0x${string}`,
 };
 
@@ -56,29 +51,24 @@ const FORWARD_REQUEST_TYPE = {
   ],
 };
 
-// ABI for MinimalForwarder
 const MINIMAL_FORWARDER_ABI = [
   'function getNonce(address from) view returns (uint256)',
   'function verify((address from, address to, uint256 value, uint256 gas, uint256 nonce, bytes data), bytes signature) view returns (bool)',
   'function execute((address from, address to, uint256 value, uint256 gas, uint256 nonce, bytes data), bytes signature) payable returns (bool, bytes)'
 ];
 
-// Main relay function
 export async function relayMetaTransaction(
   relayRequest: RelayRequest
 ): Promise<RelayResult> {
   try {
-    // Create contract instance
     const forwarder = new ethers.Contract(
       FORWARDER_ADDRESS,
       MINIMAL_FORWARDER_ABI,
       wallet
     );
 
-    // Get current nonce from the forwarder
     const currentNonce = await forwarder.getNonce(relayRequest.request.from);
     
-    // Verify the nonce
     if (BigInt(relayRequest.request.nonce) !== currentNonce) {
       return { 
         success: false, 
@@ -86,7 +76,6 @@ export async function relayMetaTransaction(
       };
     }
     
-    // Reconstruct the original request with BigInt values
     const request = {
       from: relayRequest.request.from,
       to: relayRequest.request.to,
@@ -96,7 +85,6 @@ export async function relayMetaTransaction(
       data: relayRequest.request.data as `0x${string}`
     };
     
-    // Verify the signature using EIP-712
     try {
       const recovered = await ethers.verifyTypedData(
         EIP712_DOMAIN,
@@ -113,7 +101,6 @@ export async function relayMetaTransaction(
       return { success: false, error: 'Signature verification failed' };
     }
 
-    // Execute the meta-transaction
     console.log('Executing meta-transaction:', {
       from: request.from,
       to: request.to,
@@ -129,7 +116,6 @@ export async function relayMetaTransaction(
       { value: request.value }
     );
     
-    // Wait for the transaction to be mined
     const receipt = await tx.wait();
     
     return {
@@ -147,11 +133,10 @@ export async function relayMetaTransaction(
   }
 }
 
-// Start the relayer server
+
 if (require.main === module) {
   console.log('Starting meta-transaction relayer...');
   
-  // This will be used when running this script directly
-  // In a real-world scenario, you might want to use Express or similar
+
   console.log('Relayer ready to process meta-transactions');
 }

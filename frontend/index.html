@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meta-Transaction Token Transfer</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .container {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 30px;
+    }
+    .wallet-card {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 15px;
+      width: 45%;
+    }
+    .transfer-form {
+      text-align: center;
+      margin-top: 20px;
+    }
+    input {
+      padding: 8px;
+      width: 100%;
+      margin-bottom: 10px;
+    }
+    button {
+      padding: 10px 20px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    .status {
+      margin-top: 20px;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+  </style>
+</head>
+<body>
+  <h1>Meta-Transaction Token Transfer</h1>
+  <p>Transfer tokens without gas using meta-transactions</p>
+  
+  <div class="container">
+    <div class="wallet-card">
+      <h2>Sender (Unfunded Wallet)</h2>
+      <p id="sender-address">Loading...</p>
+      <p>Balance: <span id="sender-balance">Loading...</span> TT</p>
+    </div>
+    
+    <div class="wallet-card">
+      <h2>Recipient</h2>
+      <p id="recipient-address">0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac</p>
+      <p>Balance: <span id="recipient-balance">Loading...</span> TT</p>
+    </div>
+  </div>
+  
+  <div class="transfer-form">
+    <h3>Transfer Tokens</h3>
+    <input type="number" id="amount" placeholder="Amount to transfer" min="1">
+    <button id="transfer-btn">Transfer Tokens</button>
+  </div>
+  
+  <div id="status" class="status" style="display: none;"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
