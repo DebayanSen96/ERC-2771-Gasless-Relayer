@@ -19,14 +19,26 @@ const FORWARDER_ADDRESS = '0x9a42dc931963A42750B344a56fAd5e3B7A276595';
 
 // This is the unfunded wallet's private key - NEVER expose this in production!
 // For a real app, you would use a wallet connection like MetaMask
+// Using the same private key as in the client.ts script
 const UNFUNDED_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+
+// The actual unfunded wallet address we want to display and check balance for
+// This is different from the account.address that will be derived from the private key
+const UNFUNDED_ADDRESS = '0xcd3B766CCDd6AE721141F452C550Ca635964ce71';
 
 // Initialize account and client
 const account = privateKeyToAccount(UNFUNDED_PRIVATE_KEY);
 const walletClient = createWalletClient({
   account,
   transport: http(RPC_URL),
+  chain: {
+    id: 84532, // Base Sepolia
+    name: 'Base Sepolia',
+  }
 });
+
+// Override the account address with our known unfunded address
+const senderAddress = UNFUNDED_ADDRESS;
 
 // ERC20 ABI fragments
 const ERC20_ABI = [
@@ -52,7 +64,7 @@ const ERC20_ABI = [
 // Initialize
 async function init() {
   // Display sender address
-  senderAddressEl.textContent = account.address;
+  senderAddressEl.textContent = senderAddress;
   
   // Display recipient address
   const recipientAddress = recipientAddressEl.textContent;
@@ -65,8 +77,9 @@ async function init() {
 }
 
 // Get nonce from the forwarder
-async function getNonce(from) {
+async function getNonce(forwarderAddress, from) {
   try {
+    console.log(`Getting nonce for ${from} from forwarder ${forwarderAddress}`);
     // Function selector for getNonce(address)
     const functionSelector = '0x2d0335ab';
     const paddedAddress = from.slice(2).padStart(64, '0');
@@ -83,7 +96,7 @@ async function getNonce(from) {
         method: 'eth_call',
         params: [
           {
-            to: FORWARDER_ADDRESS,
+            to: forwarderAddress,
             data: callData,
           },
           'latest',
@@ -92,6 +105,7 @@ async function getNonce(from) {
     });
 
     const result = await response.json();
+    console.log('Nonce response:', result);
     
     if (!result.result) {
       throw new Error('Invalid RPC response format');
@@ -108,7 +122,6 @@ async function getNonce(from) {
 // Update balances
 async function updateBalances() {
   try {
-    const senderAddress = account.address;
     const recipientAddress = recipientAddressEl.textContent;
     
     // Fetch sender balance
@@ -205,6 +218,7 @@ async function handleTransfer() {
 // Send meta-transaction
 async function sendMetaTransaction(to, amount) {
   try {
+    // Important: We use account.address for signing, but senderAddress for display
     const from = account.address;
     const nonce = await getNonce(FORWARDER_ADDRESS, from);
 
