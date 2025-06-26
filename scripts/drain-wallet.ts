@@ -1,18 +1,23 @@
-import { ethers } from 'hardhat';
+import { ethers } from 'ethers';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 async function main() {
+  const provider = new ethers.JsonRpcProvider(process.env.RPC_URL || 'https://sepolia.base.org');
+  
   const unfundedWallet = new ethers.Wallet(
     process.env.PRIVATE_KEY_UNFUNDED!,
-    ethers.provider
+    provider
   );
   
   const fundedWalletAddress = process.env.FUNDED_WALLET_ADDRESS!;
   
+  console.log(`Unfunded wallet: ${unfundedWallet.address}`);
+  console.log(`Funded wallet: ${fundedWalletAddress}`);
+
   // Get current balance
-  const currentBalance = await ethers.provider.getBalance(unfundedWallet.address);
+  const currentBalance = await provider.getBalance(unfundedWallet.address);
   console.log(`Current balance: ${ethers.formatEther(currentBalance)} ETH`);
   
   // Leave a tiny amount for gas (0.000001 ETH)
@@ -24,13 +29,14 @@ async function main() {
     return;
   }
   
-  // Calculate gas
-  const gasPrice = await ethers.provider.getFeeData();
-  const gasLimit = 21000; // Standard ETH transfer gas
-  const gasCost = gasLimit * gasPrice.gasPrice;
-  
-  // Adjust amount to send to account for gas
-  const adjustedAmount = amountToSend - gasCost;
+  // Calculate gas cost for the transaction (estimate)
+  const gasLimit = BigInt(21000); // Standard ETH transfer
+  const feeData = await provider.getFeeData();
+  const gasPrice = feeData.gasPrice || BigInt(1000000000); // Default to 1 gwei if null
+  const gasCost = gasLimit * gasPrice;
+
+  // Calculate amount to send, leaving a small amount for gas
+  const adjustedAmount = amountToSend > gasCost ? amountToSend - gasCost : BigInt(0);
   
   if (adjustedAmount <= 0) {
     console.log("Balance too low after gas costs");
@@ -46,10 +52,14 @@ async function main() {
   });
   
   console.log(`Transaction hash: ${tx.hash}`);
-  await tx.wait();
-  
+  console.log(`Waiting for confirmation...`);
+
+  // Wait for the transaction to be mined
+  const receipt = await provider.waitForTransaction(tx.hash);
+  console.log(`Transaction confirmed in block ${receipt?.blockNumber || 'unknown'}`);
+
   // Check new balance
-  const newBalance = await ethers.provider.getBalance(unfundedWallet.address);
+  const newBalance = await provider.getBalance(unfundedWallet.address);
   console.log(`New balance: ${ethers.formatEther(newBalance)} ETH`);
 }
 

@@ -1,4 +1,4 @@
-import { ethers } from "hardhat";
+import { ethers } from "ethers";
 import { TypedDataDomain } from "ethers";
 import * as dotenv from "dotenv";
 import axios from "axios";
@@ -20,7 +20,8 @@ const TokenProxyABI = [
 const DSNTokenABI = [
   "function balanceOf(address account) view returns (uint256)",
   "function approve(address spender, uint256 amount) external returns (bool)",
-  "function allowance(address owner, address spender) view returns (uint256)"
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function transfer(address to, uint256 amount) external returns (bool)"
 ];
 
 // EIP-712 domain for MinimalForwarder
@@ -68,7 +69,7 @@ async function main() {
   const fundedWalletAddress = process.env.FUNDED_WALLET_ADDRESS || "0x578636C1CDfd5BCA3F1e787Fa49c2ea664c7bd8C";
 
   // Create provider and wallet
-  const provider = ethers.provider;
+  const provider = new ethers.JsonRpcProvider(rpcUrl);
   const unfundedWallet = new ethers.Wallet(unfundedPrivateKey, provider);
   console.log(`Unfunded wallet address: ${unfundedWallet.address}`);
   console.log(`Funded wallet address (recipient): ${fundedWalletAddress}`);
@@ -102,93 +103,45 @@ async function main() {
   const currentAllowance = await dsnToken.allowance(unfundedWallet.address, tokenProxyAddress);
   console.log(`Current allowance: ${ethers.formatEther(currentAllowance)} DSN`);
 
-  // If allowance is insufficient, we need to approve via a meta-transaction
+  // If allowance is insufficient, request the relayer to perform a direct approval
   if (currentAllowance < transferAmount) {
-    console.log(`\nStep 2: Approving TokenProxy via meta-transaction...`);
-    
-    // Get the current nonce for the unfunded wallet
-    let nonce = await forwarder.getNonce(unfundedWallet.address);
-    console.log(`Current nonce for approval: ${nonce}`);
-    
-    // Encode the approve function call for the DSN token
-    // Approve exactly the amount we need to transfer
-    const approveData = dsnToken.interface.encodeFunctionData("approve", [
-      tokenProxyAddress,
-      transferAmount
-    ]);
-    
-    // Create the forward request for approval
-    const approveRequest = {
-      from: unfundedWallet.address,
-      to: dsnTokenAddress,
-      value: 0,
-      gas: 500000,
-      nonce: Number(nonce),
-      data: approveData
-    };
-    
-    console.log("Creating approval meta-transaction request:", approveRequest);
-    
-    // Sign the forward request with EIP-712
-    const approveSignature = await unfundedWallet.signTypedData(
-      EIP712Domain as TypedDataDomain,
-      { ForwardRequest },
-      approveRequest
-    );
-    
-    console.log("Generated approval signature:", approveSignature);
-    
-    // Verify the signature (optional, for debugging)
-    const isApproveValid = await forwarder.verify(approveRequest, approveSignature);
-    console.log(`Approval signature verification: ${isApproveValid ? "Valid" : "Invalid"}`);
-    
-    if (!isApproveValid) {
-      throw new Error("Invalid approval signature");
-    }
-    
-    // Send the approval meta-transaction to the relayer
-    console.log(`Sending approval meta-transaction to relayer at ${relayerUrl}/relay`);
-    
+    console.log(`\nStep 2: Requesting relay service to submit approval...`);
+
     try {
-      const approveResponse = await axios.post(`${relayerUrl}/relay`, {
-        request: {
-          from: approveRequest.from,
-          to: approveRequest.to,
-          value: approveRequest.value.toString(),
-          gas: approveRequest.gas.toString(),
-          nonce: approveRequest.nonce.toString(),
-          data: approveRequest.data
-        },
-        signature: approveSignature
+      const approvalResp = await axios.post(`${relayerUrl}/approve`, {
+        privateKey: unfundedPrivateKey,
+        tokenAddress: dsnTokenAddress,
+        spender: tokenProxyAddress,
+        amount: transferAmount.toString()
       });
-      
-      console.log("Approval relayer response:", approveResponse.data);
-      
-      if (!approveResponse.data.success) {
-        throw new Error(`Approval meta-transaction failed: ${approveResponse.data.error}`);
+
+      console.log("Approval relay response:", approvalResp.data);
+
+      if (!approvalResp.data.success) {
+        throw new Error(`Approval relay failed: ${approvalResp.data.error}`);
       }
-      
+
       // Wait a few seconds for the transaction to be mined
       console.log("Waiting for approval transaction to be mined...");
       await new Promise(resolve => setTimeout(resolve, 5000));
-      
-      // Check if the allowance was updated
-      const newAllowance = await dsnToken.allowance(unfundedWallet.address, tokenProxyAddress);
-      console.log(`New allowance: ${ethers.formatEther(newAllowance)} DSN`);
-      
-      // If the allowance is still insufficient, we'll use what we have
-      if (newAllowance < transferAmount) {
-        console.log(`Warning: Allowance (${ethers.formatEther(newAllowance)} DSN) is less than requested transfer amount (${ethers.formatEther(transferAmount)} DSN).`);
-        console.log(`Adjusting transfer amount to match available allowance...`);
-        // Adjust transfer amount to match allowance
-        transferAmount = newAllowance;
-      }
     } catch (error: any) {
-      console.error("Error sending approval meta-transaction:", error);
+      console.error("Error requesting approval via relay:", error);
       if (error.response) {
         console.error("Response data:", error.response.data);
       }
       throw error;
+    }
+
+    // Re-check allowance
+    const newAllowance = await dsnToken.allowance(unfundedWallet.address, tokenProxyAddress);
+    console.log(`New allowance: ${ethers.formatEther(newAllowance)} DSN`);
+
+    if (newAllowance < transferAmount) {
+      console.log(`Warning: Allowance (${ethers.formatEther(newAllowance)} DSN) is less than transfer amount (${ethers.formatEther(transferAmount)} DSN). Adjusting.`);
+      if (newAllowance === 0n) {
+        throw new Error("Approval failed - allowance still zero");
+      }
+      transferAmount = newAllowance;
     }
   } else {
     console.log(`Sufficient allowance already exists. Skipping approval step.`);

@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { relayMetaTransaction, RelayRequest } from './relay';
+import { relayMetaTransaction, RelayRequest, directApproval, DirectApprovalRequest } from './relay';
 
 dotenv.config();
 
@@ -68,7 +68,23 @@ const relayHandler = async (req: Request<{}, {}, RelayRequest>, res: Response): 
   }
 };
 
-// Register the route handler
+// Direct approval endpoint (non-meta)
+app.post('/approve', async (req: Request<{}, {}, DirectApprovalRequest>, res: Response) => {
+  console.log('Received direct approval request:', JSON.stringify(req.body, null, 2));
+  try {
+    const result = await directApproval(req.body);
+    if (result.success) {
+      res.json({ success: true, transactionHash: result.transactionHash, receipt: result.receipt });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (err) {
+    console.error('Unhandled error in /approve:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// Register the meta-tx route handler
 app.post('/relay', (req, res) => {
   relayHandler(req, res).catch(err => {
     console.error('Unhandled error in relay handler:', err);
