@@ -20,8 +20,8 @@ async function main() {
   const currentBalance = await provider.getBalance(unfundedWallet.address);
   console.log(`Current balance: ${ethers.formatEther(currentBalance)} ETH`);
   
-  // Leave a tiny amount for gas (0.000001 ETH)
-  const amountToLeave = ethers.parseEther("0.000001");
+  // Leave an extremely tiny amount (0.000000001 ETH) - definitely not enough for a transaction
+  const amountToLeave = ethers.parseEther("0.000000001");
   const amountToSend = currentBalance - amountToLeave;
   
   if (amountToSend <= 0) {

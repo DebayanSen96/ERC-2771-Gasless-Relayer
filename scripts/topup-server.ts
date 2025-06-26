@@ -1,0 +1,145 @@
+import express, { Request, Response } from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import { ethers } from 'ethers';
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Environment variables
+const RPC_URL = process.env.RPC_URL || 'https://sepolia.base.org';
+const SPONSOR_PRIVATE_KEY = process.env.SPONSOR_PRIVATE_KEY;
+
+if (!SPONSOR_PRIVATE_KEY) throw new Error('SPONSOR_PRIVATE_KEY is required in .env');
+
+// Configure provider and wallet
+const provider = new ethers.JsonRpcProvider(RPC_URL);
+const wallet = new ethers.Wallet(SPONSOR_PRIVATE_KEY, provider);
+
+// In-memory top-up counter (non-persistent – good enough for basic safety)
+const topUpCounts: Record<string, number> = {};
+const MAX_TOPUPS_PER_ADDRESS = Number(process.env.MAX_TOPUPS_PER_ADDRESS || 3);
+const GAS_BUFFER_PERCENTAGE = Number(process.env.GAS_BUFFER_PERCENTAGE || 30); // 30% buffer by default
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Health check endpoint
+app.get('/', (_req: Request, res: Response): void => {
+  res.json({ 
+    status: 'ok', 
+    message: 'ETH top-up service is running',
+    network: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Top-up endpoint
+interface TopUpRequest {
+  address: string;
+  estimatedGasWei: string; // Estimated gas in wei as a string
+}
+
+app.post('/topup', async (req: Request, res: Response) => {
+  console.log('Received top-up request:', JSON.stringify(req.body, null, 2));
+  
+  try {
+    const { address, estimatedGasWei } = req.body as TopUpRequest;
+    
+    if (!ethers.isAddress(address)) {
+      res.status(400).json({ 
+        success: false, 
+        error: 'Invalid address format' 
+      });
+    }
+
+    // Check if address has reached top-up limit
+    const already = topUpCounts[address] ?? 0;
+    if (already >= MAX_TOPUPS_PER_ADDRESS) {
+      res.status(429).json({ 
+        success: false, 
+        error: `Top-up limit reached for ${address} (${already}/${MAX_TOPUPS_PER_ADDRESS})` 
+      });
+    }
+
+    // Check current balance
+    const currentBalance = await provider.getBalance(address);
+    
+    // Calculate amount to top-up
+    let estimatedTopUpAmount = BigInt(estimatedGasWei);
+    
+    // Add buffer
+    const buffer = (estimatedTopUpAmount * BigInt(GAS_BUFFER_PERCENTAGE)) / BigInt(100);
+    estimatedTopUpAmount += buffer;
+    
+    // If current balance is sufficient, don't top-up
+    if (currentBalance >= estimatedTopUpAmount) {
+      res.json({
+        success: true,
+        message: 'Address already has sufficient balance',
+        currentBalance: currentBalance.toString(),
+        requiredBalance: estimatedTopUpAmount.toString()
+      });
+    }
+
+    // Calculate how much more is needed
+    const neededAmount = estimatedTopUpAmount - currentBalance;
+    
+    console.log(`Top-up: sending ${ethers.formatEther(neededAmount)} ETH to ${address}`);
+    
+    // Send the transaction
+    const topTx = await wallet.sendTransaction({ 
+      to: address, 
+      value: neededAmount 
+    });
+    
+    // Update top-up counter
+    topUpCounts[address] = already + 1;
+    
+    console.log(`Top-up initiated (${already + 1}/${MAX_TOPUPS_PER_ADDRESS}): ${topTx.hash}`);
+    
+    // Wait for transaction to be mined
+    const receipt = await topTx.wait();
+    res.json({
+      success: true,
+      transactionHash: topTx.hash,
+      receipt: receipt,
+      amountSent: neededAmount.toString(),
+      topUpsRemaining: MAX_TOPUPS_PER_ADDRESS - (already + 1)
+    });
+    
+  } catch (error) {
+    console.error('Error processing top-up request:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Start the server
+const server = app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`Top-up server running on http://localhost:${PORT}`);
+  console.log('Environment:', process.env.NODE_ENV || 'development');
+});
+
+// Handle graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully...');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received. Shutting down...');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+export default server;
