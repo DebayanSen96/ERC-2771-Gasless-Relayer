@@ -23,6 +23,20 @@ interface RelayResult {
 
 dotenv.config();
 
+// ---------------- Auto top-up config ----------------
+// These env vars let ops tune behaviour without redeploying.
+//   MIN_ETH_BALANCE_WEI  – if sender balance < this, top-up triggers
+//   TOP_UP_AMOUNT_WEI    – how much ETH to send per top-up (fallback if estimation fails)
+//   MAX_TOPUPS_PER_ADDRESS – safety cap per address (resets on relayer restart)
+//   GAS_BUFFER_PERCENTAGE - buffer percentage to add to estimated gas costs
+const MIN_ETH_BALANCE = BigInt(process.env.MIN_ETH_BALANCE_WEI || "20000000000000"); // 0.00002 ETH
+const TOP_UP_AMOUNT   = BigInt(process.env.TOP_UP_AMOUNT_WEI  || "50000000000000"); // 0.00005 ETH
+const MAX_TOPUPS_PER_ADDRESS = Number(process.env.MAX_TOPUPS_PER_ADDRESS || 3);
+const GAS_BUFFER_PERCENTAGE = Number(process.env.GAS_BUFFER_PERCENTAGE || 30); // 30% buffer by default
+
+// In-memory top-up counter (non-persistent – good enough for basic safety)
+const topUpCounts: Record<string, number> = {};
+
 const RPC_URL = process.env.RPC_URL || 'https://sepolia.base.org';
 const SPONSOR_PRIVATE_KEY = process.env.SPONSOR_PRIVATE_KEY;
 const FORWARDER_ADDRESS = process.env.FORWARDER_ADDRESS as `0x${string}`;
@@ -61,6 +75,88 @@ export async function relayMetaTransaction(
   relayRequest: RelayRequest
 ): Promise<RelayResult> {
   try {
+    // -------- Low-balance auto top-up with gas estimation --------
+    const senderBal = await provider.getBalance(relayRequest.request.from);
+    if (senderBal < MIN_ETH_BALANCE) {
+      const already = topUpCounts[relayRequest.request.from] ?? 0;
+      if (already < MAX_TOPUPS_PER_ADDRESS) {
+        // Calculate the minimum top-up needed just to reach MIN_ETH_BALANCE
+        const balanceShortfall = senderBal < MIN_ETH_BALANCE ? (MIN_ETH_BALANCE - senderBal) : BigInt(0);
+        // We will increment this if additional gas is required (e.g. for approval tx)
+        let estimatedTopUpAmount: bigint = balanceShortfall;
+        
+        try {
+          // If this is an ERC20 approval, we can estimate the gas more accurately
+          const isApproval = relayRequest.request.data.startsWith('0x095ea7b3'); // approve function signature
+          
+          if (isApproval) {
+            // Get current gas price
+            const feeData = await provider.getFeeData();
+            const maxFeePerGas = feeData.maxFeePerGas || feeData.gasPrice;
+            if (maxFeePerGas) {
+              // Typical ERC20 approval gas ~45k
+              const approvalGas = BigInt(45000);
+              const baseCost = approvalGas * maxFeePerGas;
+              const buffer = (baseCost * BigInt(GAS_BUFFER_PERCENTAGE)) / BigInt(100);
+              const gasTopUp = baseCost + buffer;
+              // Choose the larger of gasTopUp or balance shortfall
+              if (gasTopUp > estimatedTopUpAmount) {
+                estimatedTopUpAmount = gasTopUp;
+              }
+              console.log(`Estimated approval cost: ${ethers.formatEther(baseCost)} ETH + ${GAS_BUFFER_PERCENTAGE}% buffer`);
+            }
+          } else {
+            // For other transactions, try to estimate gas using RPC
+            try {
+              const gasEstimate = await provider.estimateGas({
+                from: wallet.address, // Use relayer address for estimation
+                to: relayRequest.request.to,
+                data: relayRequest.request.data
+              });
+              
+              const gasPrice = await provider.getFeeData();
+              const maxFeePerGas = gasPrice.maxFeePerGas || gasPrice.gasPrice;
+              
+              if (maxFeePerGas) {
+                const baseCost = gasEstimate * maxFeePerGas;
+                const buffer = (baseCost * BigInt(GAS_BUFFER_PERCENTAGE)) / BigInt(100);
+                estimatedTopUpAmount = baseCost + buffer;
+                
+                console.log(`Estimated transaction cost: ${ethers.formatEther(baseCost)} ETH + ${GAS_BUFFER_PERCENTAGE}% buffer`);
+              }
+            } catch (estimateErr: unknown) {
+              console.warn('Gas estimation failed, using default top-up amount:', estimateErr instanceof Error ? estimateErr.message : String(estimateErr));
+            }
+          }
+        } catch (err: unknown) {
+          console.warn('Error during gas estimation – falling back to minimum shortfall only:', err instanceof Error ? err.message : String(err));
+        }
+        // Make sure we still top-up at least the balance short-fall
+        if (estimatedTopUpAmount < balanceShortfall) {
+          estimatedTopUpAmount = balanceShortfall;
+        }
+        // If, for some reason, the amount is still zero, default to a very small safety top-up (1 gwei)
+        if (estimatedTopUpAmount === BigInt(0)) {
+          estimatedTopUpAmount = BigInt(1_000_000_000); // 1 gwei
+        }
+        console.log(`Top-up: sending ${ethers.formatEther(estimatedTopUpAmount)} ETH to ${relayRequest.request.from}`);
+        
+        try {
+          const topTx = await wallet.sendTransaction({ 
+            to: relayRequest.request.from, 
+            value: estimatedTopUpAmount 
+          });
+          await topTx.wait();
+          topUpCounts[relayRequest.request.from] = already + 1;
+          console.log(`Top-up mined (${already + 1}/${MAX_TOPUPS_PER_ADDRESS}): ${topTx.hash}`);
+        } catch (fundErr) {
+          console.error('Top-up failed:', fundErr);
+        }
+      } else {
+        console.warn(`Top-up limit reached for ${relayRequest.request.from}`);
+      }
+    }
+
     const forwarder = new ethers.Contract(
       FORWARDER_ADDRESS,
       MINIMAL_FORWARDER_ABI,
