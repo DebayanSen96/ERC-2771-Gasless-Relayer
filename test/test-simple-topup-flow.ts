@@ -55,7 +55,7 @@ async function main() {
   // Define transfer amount (1 token with proper decimals)
   const transferAmount = ethers.parseUnits("1.0", tokenDecimals);
   
-  console.log(`\nStep 1: Estimating gas for token transfer...`);
+  console.log(`\nStep 1: Requesting top-up (server-side estimation)...`);
   
   // Create transfer transaction for gas estimation
   const transferTx = await tokenContract.transfer.populateTransaction(
@@ -63,64 +63,44 @@ async function main() {
     transferAmount
   );
   
-  // Estimate gas
-  const gasEstimate = await provider.estimateGas({
-    from: unfundedWallet.address,
+  const txPayload = {
     to: TOKEN_ADDRESS,
-    data: transferTx.data
-  });
+    data: transferTx.data!,
+    value: "0"
+  };
   
-  // Get current gas price
-  const feeData = await provider.getFeeData();
-  const gasPrice = feeData.gasPrice || ethers.parseUnits("1", "gwei");
+  const message = ethers.solidityPacked(
+    ['address','address','bytes','uint256'],
+    [unfundedWallet.address, txPayload.to, txPayload.data, 0n]
+  );
+  const signature = await unfundedWallet.signMessage(message);
   
-  // Calculate total gas cost in wei
-  const gasCostWei = gasEstimate * gasPrice;
-  
-  console.log(`Estimated gas units: ${gasEstimate.toString()}`);
-  console.log(`Current gas price: ${ethers.formatUnits(gasPrice, "gwei")} gwei`);
-  console.log(`Total estimated gas cost: ${ethers.formatEther(gasCostWei)} ETH`);
-  
-  // Check if we need a top-up
-  if (initialEthBalance < gasCostWei) {
-    console.log(`\nStep 2: Requesting top-up from server...`);
-    
-    try {
-      const topupResponse = await axios.post(`${TOPUP_SERVER_URL}/topup`, {
-        address: unfundedWallet.address,
-        estimatedGasWei: gasCostWei.toString()
-      });
-      
-      console.log("Top-up response:", topupResponse.data);
-      
-      if (topupResponse.data.transactionHash) {
-        console.log(`Top-up transaction hash: ${topupResponse.data.transactionHash}`);
-        console.log("Waiting for top-up transaction to be mined...");
-        
-        // Wait a bit for the transaction to be mined
-        await new Promise(resolve => setTimeout(resolve, 5000));
-      }
-    } catch (error) {
-      console.error("Error requesting top-up:", error);
-      if (axios.isAxiosError(error) && error.response) {
-        console.error("Server response:", error.response.data);
-      }
-      process.exit(1);
+  try {
+    const topupResponse = await axios.post(`${TOPUP_SERVER_URL}/topup`, {
+      address: unfundedWallet.address,
+      tx: txPayload,
+      signature
+    });
+    console.log("Top-up response:", topupResponse.data);
+    if (topupResponse.data.transactionHash) {
+      console.log(`Top-up transaction hash: ${topupResponse.data.transactionHash}`);
+      console.log("Waiting for top-up transaction to be mined...");
+      await provider.waitForTransaction(topupResponse.data.transactionHash);
     }
-  } else {
-    console.log(`\nStep 2: Skipping top-up - wallet has sufficient ETH balance`);
-  }
-  
-  // Check updated balance
-  const updatedEthBalance = await provider.getBalance(unfundedWallet.address);
-  console.log(`Updated ETH balance: ${ethers.formatEther(updatedEthBalance)} ETH`);
-  
-  if (updatedEthBalance < gasCostWei) {
-    console.error("Error: Insufficient ETH balance after top-up attempt");
+  } catch (error) {
+    console.error("Error requesting top-up:", error);
+    if (axios.isAxiosError(error) && error.response) {
+      console.error("Server response:", error.response.data);
+    }
     process.exit(1);
   }
   
-  console.log(`\nStep 3: Sending token transfer transaction...`);
+  const updatedEthBalance = await provider.getBalance(unfundedWallet.address);
+  console.log(`Updated ETH balance: ${ethers.formatEther(updatedEthBalance)} ETH`);
+  
+  console.log(`\nStep 2: Sending token transfer transaction...`);
+  
+
   
   // Send the transfer transaction
   try {

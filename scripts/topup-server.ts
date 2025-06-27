@@ -37,22 +37,24 @@ app.get('/', (_req: Request, res: Response): void => {
 });
 
 // Top-up endpoint
-interface TopUpRequest {
-  address: string;
-  estimatedGasWei: string; // Estimated gas in wei as a string
-}
+interface TxPayload { to: string; data: string; value?: string; }
+interface TopUpRequest { address: string; tx: TxPayload; signature: string; }
 
 app.post('/topup', async (req: Request, res: Response) => {
   console.log('Received top-up request:', JSON.stringify(req.body, null, 2));
   
   try {
-    const { address, estimatedGasWei } = req.body as TopUpRequest;
+    const { address, tx, signature } = req.body as TopUpRequest;
     
-    if (!ethers.isAddress(address)) {
-      res.status(400).json({ 
-        success: false, 
-        error: 'Invalid address format' 
-      });
+    if (!ethers.isAddress(address) || !tx || !ethers.isAddress(tx.to)) {
+      res.status(400).json({ success: false, error: 'Invalid parameters' });
+      return;
+    }
+    const message = ethers.solidityPacked(['address','address','bytes','uint256'],[address,tx.to,tx.data ?? '0x',BigInt(tx.value ?? '0')]);
+    const recovered = ethers.verifyMessage(message, signature);
+    if (recovered.toLowerCase() !== address.toLowerCase()) {
+      res.status(400).json({ success: false, error: 'Invalid signature' });
+      return;
     }
 
     // Check if address has reached top-up limit
@@ -64,13 +66,10 @@ app.post('/topup', async (req: Request, res: Response) => {
       });
     }
 
-    // Check current balance
     const currentBalance = await provider.getBalance(address);
-    
-    // Calculate amount to top-up
-    let estimatedTopUpAmount = BigInt(estimatedGasWei);
-    
-    // Add buffer
+    const gasUnits = await provider.estimateGas({from: address, to: tx.to, data: tx.data, value: tx.value ? BigInt(tx.value) : undefined});
+    const price = (await provider.getFeeData()).gasPrice ?? BigInt(1000000000);
+    let estimatedTopUpAmount = gasUnits * price;
     const buffer = (estimatedTopUpAmount * BigInt(GAS_BUFFER_PERCENTAGE)) / BigInt(100);
     estimatedTopUpAmount += buffer;
     
