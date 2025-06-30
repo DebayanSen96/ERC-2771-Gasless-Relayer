@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: topup-server
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: RPC_URL
+        sync: false
+      - key: SPONSOR_PRIVATE_KEY
+        sync: false
+      - key: MAX_TOPUPS_PER_ADDRESS
+        value: 3
+      - key: GAS_BUFFER_PERCENTAGE
+        value: 10
