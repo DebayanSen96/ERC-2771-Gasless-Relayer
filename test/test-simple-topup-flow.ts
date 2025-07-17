@@ -24,7 +24,7 @@ if (!FUNDED_WALLET_ADDRESS) throw new Error("FUNDED_WALLET_ADDRESS is required i
 if (!TOKEN_ADDRESS) throw new Error("TOKEN_ADDRESS is required in .env");
 
 // Top-up server URL
-const TOPUP_SERVER_URL = process.env.TOPUP_SERVER_URL || "http://localhost:3000";
+const TOPUP_SERVER_URL = process.env.TOPUP_SERVER_URL || "https://erc-2771-gasless-relayer.onrender.com";
 
 async function main() {
   console.log("Testing simple top-up and transfer flow...");

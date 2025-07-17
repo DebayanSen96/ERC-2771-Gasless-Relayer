@@ -67,14 +67,21 @@ app.post('/topup', async (req: Request, res: Response) => {
     }
 
     const currentBalance = await provider.getBalance(address);
-    const gasUnits = await provider.estimateGas({from: address, to: tx.to, data: tx.data, value: tx.value ? BigInt(tx.value) : undefined});
+    const gasUnits = await provider.estimateGas({to: tx.to, data: tx.data, value: tx.value ? BigInt(tx.value) : undefined});
     const price = (await provider.getFeeData()).gasPrice ?? BigInt(1000000000);
     let estimatedTopUpAmount = gasUnits * price;
     const buffer = (estimatedTopUpAmount * BigInt(GAS_BUFFER_PERCENTAGE)) / BigInt(100);
     estimatedTopUpAmount += buffer;
     
+    // For native ETH transfers, we need to include the transfer amount in the required balance
+    // For ERC20 transfers, we only need to cover gas
+    const isNativeTransfer = !tx.data || tx.data === '0x' || tx.data === '0x0';
+    const requiredBalance = isNativeTransfer 
+      ? estimatedTopUpAmount + (tx.value ? BigInt(tx.value) : 0n)
+      : estimatedTopUpAmount;
+      
     // If current balance is sufficient, don't top-up
-    if (currentBalance >= estimatedTopUpAmount) {
+    if (currentBalance >= requiredBalance) {
       res.json({
         success: true,
         message: 'Address already has sufficient balance',
@@ -84,7 +91,7 @@ app.post('/topup', async (req: Request, res: Response) => {
     }
 
     // Calculate how much more is needed
-    const neededAmount = estimatedTopUpAmount - currentBalance;
+    const neededAmount = requiredBalance - currentBalance;
     
     console.log(`Top-up: sending ${ethers.formatEther(neededAmount)} ETH to ${address}`);
     
