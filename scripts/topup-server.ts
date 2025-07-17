@@ -76,9 +76,17 @@ app.post('/topup', async (req: Request, res: Response) => {
     // For native ETH transfers, we need to include the transfer amount in the required balance
     // For ERC20 transfers, we only need to cover gas
     const isNativeTransfer = !tx.data || tx.data === '0x' || tx.data === '0x0';
-    const requiredBalance = isNativeTransfer 
-      ? estimatedTopUpAmount + (tx.value ? BigInt(tx.value) : 0n)
-      : estimatedTopUpAmount;
+    const txValue = tx.value ? BigInt(tx.value) : 0n;
+    let requiredBalance: bigint;
+    if (isNativeTransfer) {
+      if (currentBalance < txValue) {
+        res.status(400).json({ success: false, error: 'Sender balance below transfer value' });
+        return;
+      }
+      requiredBalance = estimatedTopUpAmount;
+    } else {
+      requiredBalance = estimatedTopUpAmount;
+    }
       
     // If current balance is sufficient, don't top-up
     if (currentBalance >= requiredBalance) {
