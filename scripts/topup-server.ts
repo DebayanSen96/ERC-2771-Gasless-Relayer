@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { ethers } from 'ethers';
+import { getTokensByNetwork } from '../src/constants/tokens';
 
 dotenv.config();
 
@@ -34,6 +35,33 @@ app.get('/', (_req: Request, res: Response): void => {
     message: 'ETH top-up service is running',
     network: process.env.NODE_ENV || 'development'
   });
+});
+
+// Get tokens by network
+app.get('/tokens/:network', (req, res) => {
+  try {
+    const { network } = req.params as { network: string };
+    const tokens = getTokensByNetwork(network);
+    
+    if (tokens.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: 'Network not found or no tokens available for this network'
+      });
+      return;
+    }
+    
+    res.json({
+      success: true,
+      data: tokens
+    });
+  } catch (error) {
+    console.error('Error fetching tokens:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch tokens'
+    });
+  }
 });
 
 // Top-up endpoint
