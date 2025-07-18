@@ -19,9 +19,6 @@ if (!SPONSOR_PRIVATE_KEY) throw new Error('SPONSOR_PRIVATE_KEY is required in .e
 const provider = new ethers.JsonRpcProvider(RPC_URL);
 const wallet = new ethers.Wallet(SPONSOR_PRIVATE_KEY, provider);
 
-// In-memory top-up counter (non-persistent – good enough for basic safety)
-const topUpCounts: Record<string, number> = {};
-const MAX_TOPUPS_PER_ADDRESS = Number(process.env.MAX_TOPUPS_PER_ADDRESS || 3);
 const GAS_BUFFER_PERCENTAGE = Number(process.env.GAS_BUFFER_PERCENTAGE || 30); // 30% buffer by default
 
 // Middleware
@@ -85,15 +82,7 @@ app.post('/topup', async (req: Request, res: Response) => {
       return;
     }
 
-    // Check if address has reached top-up limit
-    const already = topUpCounts[address] ?? 0;
-    if (already >= MAX_TOPUPS_PER_ADDRESS) {
-      res.status(429).json({ 
-        success: false, 
-        error: `Top-up limit reached for ${address} (${already}/${MAX_TOPUPS_PER_ADDRESS})` 
-      });
-      return;
-    }
+
 
     const currentBalance = await provider.getBalance(address);
     const gasUnits = await provider.estimateGas({to: tx.to, data: tx.data, value: tx.value ? BigInt(tx.value) : undefined});
@@ -129,10 +118,7 @@ app.post('/topup', async (req: Request, res: Response) => {
       value: neededAmount 
     });
     
-    // Update top-up counter
-    topUpCounts[address] = already + 1;
-    
-    console.log(`Top-up initiated (${already + 1}/${MAX_TOPUPS_PER_ADDRESS}): ${topTx.hash}`);
+    console.log(`Top-up initiated: ${topTx.hash}`);
     
     // Wait for transaction to be mined
     const receipt = await topTx.wait();
@@ -140,8 +126,7 @@ app.post('/topup', async (req: Request, res: Response) => {
       success: true,
       transactionHash: topTx.hash,
       receipt: receipt,
-      amountSent: neededAmount.toString(),
-      topUpsRemaining: MAX_TOPUPS_PER_ADDRESS - (already + 1)
+      amountSent: neededAmount.toString()
     });
     
   } catch (error) {
