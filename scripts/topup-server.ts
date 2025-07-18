@@ -64,6 +64,7 @@ app.post('/topup', async (req: Request, res: Response) => {
         success: false, 
         error: `Top-up limit reached for ${address} (${already}/${MAX_TOPUPS_PER_ADDRESS})` 
       });
+      return;
     }
 
     const currentBalance = await provider.getBalance(address);
@@ -88,18 +89,9 @@ app.post('/topup', async (req: Request, res: Response) => {
       requiredBalance = estimatedTopUpAmount;
     }
       
-    // If current balance is sufficient, don't top-up
-    if (currentBalance >= requiredBalance) {
-      res.json({
-        success: true,
-        message: 'Address already has sufficient balance',
-        currentBalance: currentBalance.toString(),
-        requiredBalance: estimatedTopUpAmount.toString()
-      });
-    }
-
-    // Calculate how much more is needed
-    const neededAmount = requiredBalance - currentBalance;
+    // Always send the estimated gas fees + buffer to ensure gasless experience
+    // This covers the case where the user has some ETH but we still want to sponsor the transaction
+    const neededAmount = estimatedTopUpAmount;
     
     console.log(`Top-up: sending ${ethers.formatEther(neededAmount)} ETH to ${address}`);
     

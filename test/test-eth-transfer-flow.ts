@@ -93,10 +93,14 @@ async function main() {
     console.log(`\n✅ Successfully sent ${ethSent} ETH from ${unfundedWallet.address} to ${FUNDED_WALLET_ADDRESS}`);
     
   } catch (error) {
-    console.error("Error in ETH transfer flow:", error);
     if (axios.isAxiosError(error) && error.response) {
-      console.error("Server response:", error.response.data);
+      if (error.response.status === 400 && error.response.data?.error === 'Sender balance below transfer value') {
+        console.log(`❌ Top-up rejected: ${error.response.data.error}`);
+        return; // graceful exit – nothing more to do
+      }
+      console.error('Server response:', error.response.data);
     }
+    console.error('Error in ETH transfer flow:', error);
     process.exit(1);
   }
 }
