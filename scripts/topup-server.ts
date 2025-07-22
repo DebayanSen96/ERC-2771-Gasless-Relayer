@@ -85,7 +85,12 @@ app.post('/topup', async (req: Request, res: Response) => {
 
 
     const currentBalance = await provider.getBalance(address);
-    const gasUnits = await provider.estimateGas({to: tx.to, data: tx.data, value: tx.value ? BigInt(tx.value) : undefined});
+    const gasUnits = await provider.estimateGas({
+      to: tx.to, 
+      data: tx.data, 
+      value: tx.value ? BigInt(tx.value) : undefined,
+      from: address
+    });
     const price = (await provider.getFeeData()).gasPrice ?? BigInt(1000000000);
     let estimatedTopUpAmount = gasUnits * price;
     const buffer = (estimatedTopUpAmount * BigInt(GAS_BUFFER_PERCENTAGE)) / BigInt(100);
